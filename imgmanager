@@ -1,0 +1,87 @@
+#!/usr/bin/env bash
+
+read -r -d '' USAGE_MSG << EOF
+Usage:
+    imgmanager DOCKER_FILE VERSION [-p|--push] [-r|--registry REGISTRY] [-h|--help]
+
+    DOCKER_FILE :: The dockerfile to read to make the image
+    VERSION :: The version to tag the dockerfile with
+        The name of the image is parsed from the dockerfile itself.
+        E.g. 'my_docker.dockerfile' >> 'my_docker:VERSION'
+    -p / --push :: if specified, pushes the docker to the registry
+    -r / --registry REGISTRY :: Specify registry to push to.
+        Defaults to cmalabscience. Do not specify the ending '/'.
+    -h / --help :: Show this message and exit.
+EOF
+
+read -r -d '' HEADER << EOF
+Image Manager
+
+Helps in building and pushing docker images to the docker registry.
+
+EOF
+
+log () {
+    echo -n "IMGMANAGER >> "
+    echo $@
+}
+
+set -e
+
+PUSH=false
+REGISTRY='cmalabscience'
+declare -a POSITIONALS
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+    -h | --help)
+        echo "$HEADER"
+        echo "$USAGE_MSG"
+        exit 0
+        ;;
+    -p | --push)
+        PUSH=true
+        shift 1
+        ;;
+    -r | --registry)
+        shift 1
+        REGISTRY=$1
+        shift 1
+        ;;
+    -* | --*)
+        echo "Error: Unrecognized argument '$1'."
+        exit 1
+        ;;
+    *)
+        POSITIONALS+=($1)
+        shift 1
+        ;;
+    esac
+done
+
+if [[ "${#POSITIONALS[@]}" != 2 ]]; then
+    echo "Error: Invalid number of args: expected 2, got ${#POSITIONALS[@]}."
+    echo "$USAGE_MSG"
+    exit 1
+fi
+
+DOCKER_FILE=${POSITIONALS[0]}
+VERSION=${POSITIONALS[1]}
+
+log "Making slug..."
+
+TAG=$(realpath $DOCKER_FILE | awk -F "/" '{split($NF, a, "."); print a[1]}')
+SLUG="${REGISTRY}/${TAG}:${VERSION}"
+
+log "Executing docker build..."
+
+# This synthax prevents the builder from receiving any context (since there
+# is no context to send)
+docker build --tag $SLUG - < $DOCKER_FILE
+
+if [[ $PUSH = true ]]; then
+    log "Pushing..."
+    docker push $SLUG
+fi
+
+log "Done."
